@@ -18,7 +18,7 @@ import streamlit as st
 # Load environment variables
 load_dotenv()
 # openai_api_key_tr = os.getenv("OPENAI_API_KEY")
-openai_api_key_tr = st.secrets["OPENAI_API_KEY"]
+openai_api_key_tr = st.secrets["openai"]["OPENAI_API_KEY"]
 
 
 # Dosyayı sadece bir kez yükleyip, tekrar tekrar yüklenmesini önleyelim
