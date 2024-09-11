@@ -12,7 +12,7 @@ from langchain.memory import ConversationBufferWindowMemory
 import faiss
 import numpy as np
 import streamlit as st
-
+import tiktoken
 
 
 # Load environment variables
