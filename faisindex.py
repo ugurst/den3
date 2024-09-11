@@ -3,7 +3,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 import openai
 import os
 import langchain_community
-import pandas as pdpip
+import pandas as pd
 from langchain.schema import Document
 from langchain.prompts import ChatPromptTemplate
 from langchain_community.chat_models import ChatOpenAI
