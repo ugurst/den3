@@ -149,11 +149,7 @@ Müşteriye soruları yanıtlarken şu adımları izle:
 
 Soru: {question}
 """
-
-# memory = ConversationBufferWindowMemory(k=5)
-if 'memory' not in st.session_state:
-    st.session_state['memory'] = ConversationBufferWindowMemory(k=5)
-
+memory = ConversationBufferWindowMemory(k=5)
 
 def generate_response_with_gpt(context_text, query_text, openai_api_key):
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
@@ -166,25 +162,7 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
 
 
 # Streamlit uygulaması
-if 'memory' not in st.session_state:
-    st.session_state['memory'] = ConversationBufferWindowMemory(k=5)
-
-def generate_response_with_gpt(context_text, query_text, openai_api_key):
-    prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-
-    # Geçmiş konuşmayı memory'den alıyoruz
-    previous_context = st.session_state['memory'].load_memory_variables({})["history"]
-    prompt = prompt_template.format(context=previous_context + context_text, question=query_text)
-
-    model = ChatOpenAI(openai_api_key=openai_api_key)
-    response_text = model.predict(prompt)
-
-    # Belleğe yeni soruyu ve yanıtı kaydet
-    st.session_state['memory'].save_context({"input": query_text}, {"output": response_text})
-
-    return response_text
-
-# Streamlit uygulaması
+# İlk olarak session_state'te 'messages' anahtarını başlatıyoruz
 if 'messages' not in st.session_state:
     st.session_state['messages'] = []
 
@@ -192,22 +170,26 @@ with st.form(key='chat_form'):
     query_text = st.text_input("Bir ürün sorusu sorun:")
     submit_button = st.form_submit_button(label='Gönder')
 
-# Form gönderildiğinde
+# Eğer form gönderildiyse (Enter'a basıldığında)
 if submit_button and query_text:
+    # Kullanıcı mesajını session_state'e ekle
     st.session_state['messages'].append({"role": "user", "content": query_text})
 
     # FAISS ile sorgu yapıp GPT yanıtını alıyoruz
-    response_text = generate_response_with_gpt("", query_text, openai_api_key)
+    response_text = search_and_generate_response(query_text, faiss_index, openai_api_key)
 
-    # Bot yanıtını mesajlara ekliyoruz
+    # Bot yanıtını mesajlara ekle
     st.session_state['messages'].append({"role": "bot", "content": response_text})
 
-# Mesajları göster
+# Mesajları aşağıdan yukarıya doğru sırayla göstermek için ters çevirme
 if st.session_state['messages']:
     for i in range(0, len(st.session_state['messages']), 2):
-        with st.container():
+        with st.container():  # Kullanıcı ve bot mesajlarını bir container içine alıyoruz
+            # Kullanıcı mesajı varsa
             if i < len(st.session_state['messages']) and st.session_state['messages'][i]["role"] == "user":
                 st.markdown(f"*Kullanıcı:* {st.session_state['messages'][i]['content']}")
+            # Bot yanıtı varsa
             if i + 1 < len(st.session_state['messages']) and st.session_state['messages'][i + 1]["role"] == "bot":
                 st.markdown(f"*Buzi:* {st.session_state['messages'][i + 1]['content']}")
-        st.markdown("---")
+
+        st.markdown("---")  # Mesajlar arasında ayırıcı çizgi (isteğe bağlı)
