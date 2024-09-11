@@ -17,8 +17,8 @@ import tiktoken
 
 # Load environment variables
 load_dotenv()
-# openai_api_key_tr = os.getenv("OPENAI_API_KEY")
-openai_api_key_tr = st.secrets["openai"]["OPENAI_API_KEY"]
+# openai_api_key = os.getenv("OPENAI_API_KEY")
+openai_api_key = st.secrets["openai"]["OPENAI_API_KEY"]
 
 
 # Dosyayı sadece bir kez yükleyip, tekrar tekrar yüklenmesini önleyelim
@@ -65,7 +65,7 @@ def split_text(documents: list[Document]):
 chunked_documents = split_text(complete_documents)
 
 # OpenAI Embedding işlemi
-embedding_function = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=openai_api_key_tr)
+embedding_function = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=openai_api_key)
 
 
 def embed_product_text(chunked_documents):
