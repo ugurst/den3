@@ -14,7 +14,7 @@ import numpy as np
 import streamlit as st
 import tiktoken
 
-@st.cache_data
+
 # Load environment variables
 load_dotenv()
 # openai_api_key = os.getenv("OPENAI_API_KEY")
