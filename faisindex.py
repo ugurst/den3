@@ -170,7 +170,7 @@ if 'messages' not in st.session_state:
     st.session_state['messages'] = []
 
 with st.form(key='chat_form'):
-    query_text = st.text_input("Bir ürün sorusu sorun:")
+    query_text = st.text_input("Merhaba! Ben asistanınız Buzi. Buzdolapları hakkında size bilgi verebilirim.:")
     submit_button = st.form_submit_button(label='Gönder')
 
 # Eğer form gönderildiyse (Enter'a basıldığında)
