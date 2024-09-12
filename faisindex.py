@@ -152,21 +152,21 @@ Müşteriye soruları yanıtlarken şu adımları izle:
 
 Soru: {question}
 """
-memory = ConversationBufferWindowMemory(k=5)
+memory = ConversationBufferWindowMemory(k=10)
 
 def generate_response_with_gpt(context_text, query_text, openai_api_key):
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-
     
-    previous_context = "\n".join([f"Kullanıcı: {msg['content']}" if msg['role'] == "user" else f"Buzi: {msg['content']}"
+    # Kullanıcı ve bot mesajlarını bağlama dahil ediyoruz
+    previous_context = "\n".join([f"Kullanıcı: {msg['content']}" if msg['role'] == "user" else f"Buzi: {msg['content']}" 
                                   for msg in st.session_state['messages']])
-
     
+    # Sohbet geçmişini ve bağlamı kullanarak GPT modeline prompt oluşturuyoruz
     prompt = prompt_template.format(context=previous_context + context_text, question=query_text)
-
+    
     model = ChatOpenAI(openai_api_key=openai_api_key)
     response_text = model.predict(prompt)
-
+    
     memory.save_context({"input": query_text}, {"output": response_text})
     return response_text
 
@@ -192,6 +192,7 @@ if submit_button and query_text:
     st.session_state['messages'].append({"role": "bot", "content": response_text})
 
 # Mesajları aşağıdan yukarıya doğru sırayla göstermek için ters çevirme
+# Mesajları aşağıdan yukarıya doğru sırayla göstermek için ters çevirme
 if st.session_state['messages']:
     for i in range(0, len(st.session_state['messages']), 2):
         with st.container():  # Kullanıcı ve bot mesajlarını bir container içine alıyoruz
@@ -202,4 +203,5 @@ if st.session_state['messages']:
             if i + 1 < len(st.session_state['messages']) and st.session_state['messages'][i + 1]["role"] == "bot":
                 st.markdown(f"*Buzi:* {st.session_state['messages'][i + 1]['content']}")
 
-        st.markdown("---")  
+        st.markdown("---")  # Mesajlar arasında ayırıcı çizgi (isteğe bağlı)
+
