@@ -138,7 +138,7 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
     # Sistem mesajı şablonunu oluşturun
     system_message_prompt = SystemMessagePromptTemplate.from_template(PROMPT_TEMPLATE)
 
-    # Sohbet geçmişi için bir yer tutucu ekleyin
+    
     chat_prompt = ChatPromptTemplate(
         input_variables=["context", "input", "history"],
         messages=[
