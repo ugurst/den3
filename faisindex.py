@@ -2,26 +2,33 @@ from langchain_community.embeddings import OpenAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import openai
 import os
-import langchain_community
 import pandas as pd
 from langchain.schema import Document
-from langchain.prompts import ChatPromptTemplate
+from langchain.prompts import (
+    ChatPromptTemplate,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate
+)
 from langchain_community.chat_models import ChatOpenAI
 from dotenv import load_dotenv
 from langchain.memory import ConversationBufferWindowMemory
 import faiss
 import numpy as np
 import streamlit as st
-import tiktoken
+from langchain.prompts.chat import MessagesPlaceholder
+from langchain.chains import LLMChain
 
-# Load environment variables
+
 load_dotenv()
 openai_api_key = st.secrets["openai"]["OPENAI_API_KEY"]
 
-# Embedding işlemi için OpenAI Embedding fonksiyonunu tanımla
-embedding_function = OpenAIEmbeddings(model="text-embedding-3-large", openai_api_key=openai_api_key)
 
-# Dosyayı sadece bir kez yükleyip, tekrar tekrar yüklenmesini önleyelim
+embedding_function = OpenAIEmbeddings(
+    model="text-embedding-3-large",
+    openai_api_key=openai_api_key
+)
+
+
 if 'df' not in st.session_state:
     file_path = 'documents2.xlsx'
     xls = pd.ExcelFile(file_path)
@@ -32,12 +39,8 @@ df = st.session_state['df']
 def combine_product_info_all_columns(df):
     documents = []
     for idx, row in df.iterrows():
-        # Tüm ürün bilgilerini metin olarak birleştiriyoruz
         product_description = "\n".join([f"{col}: {row[col]}" for col in df.columns])
-
         metadata = {col: row[col] for col in df.columns}
-
-        # Document oluşturup listeye ekliyoruz
         documents.append(Document(page_content=product_description, metadata=metadata))
 
     return documents
@@ -94,58 +97,79 @@ else:
 def search_faiss(query, index, k=10):
     query_embedding = embedding_function.embed_query(query)
     query_embedding = np.array([query_embedding])
-
     distances, indices = index.search(query_embedding, k)
-
     results = [metadata[i] for i in indices[0]]
     return results
 
 
 # Bellek modülü ile önceki yanıtların kaydedilmesi
-memory = ConversationBufferWindowMemory(k=5)
+memory = ConversationBufferWindowMemory(
+    k=5,
+    memory_key="history",
+    input_key="input",
+    return_messages=True
+)
 
-# Bellek güncelleme fonksiyonu
-def update_memory_with_response(query, response, memory):
-    memory.save_context({"input": query}, {"output": response})
+# Belleğe ek olarak önerilen ürünü saklamak için bir değişken
+if 'recommended_product' not in st.session_state:
+    st.session_state['recommended_product'] = None
 
 # GPT-3.5 ile Soru Cevaplama Yapısı
 PROMPT_TEMPLATE = """
-Sen bir müşteri hizmetleri temsilcisi gibi davran ve aşağıdaki ürün bilgilerini kullanarak soruları cevapla:
+Sen bir müşteri hizmetleri temsilcisi gibi davran ve aşağıdaki ürün bilgisini kullanarak soruları cevapla:
 
 {context}
 
 ---
 
-Müşteriye soruları yanıtlarken şu adımları izle:
-1. Eğer bir ürün hakkında bilgi veriyorsan, daha fazla ayrıntı isteyip istemediğini sor (örn: renk, marka, fiyat aralığı).
-2. Eğer ürün seçenekleri genişse, müşteriye maksimum 2 ürün öner.
-3. Yanıtların samimi ve kullanıcı dostu olsun. Örneğin: "Evet, elimizde beyaz buzdolabı var. Tercih ettiğiniz bir marka var mı?"
-4. Eğer soru buzdolabı veya buzlukta saklanabilecek yiyeceklerle ilgiliyse, şu yanıtları kullan:
-   - Buzdolabında genellikle süt ürünleri, sebzeler, meyveler, pişmiş yemekler ve içecekler saklanır. 
-   - Et, balık ve tavuk gibi çiğ gıdalar genellikle buzdolabının alt rafında saklanmalıdır.
-   - Buzlukta ise dondurulmuş sebzeler, dondurma, et, balık, tavuk ve buz saklanabilir. Dondurulmuş gıdalar uzun süre saklanabilir ve gerektiğinde çözdürülüp kullanılabilir.
-5. Meta datalara iyi odaklan, kullanıcının sorusuna en doğru cevabı vermeye çalış ve dinamik yapıdan kopma. Ürünler hakkında detaylı açıklamalar ver.
-6. Neden bu ürünü tercih etmeliyim? Neden Bu ürünü almalıyım gibi sorulara ikna edici cevaplar vermelisin
+Sohbet geçmişi:
+
+{history}
 
 ---
 
-Soru: {question}
+Müşteriye soruları yanıtlarken şu adımları izle:
+1. Eğer bir ürün önerdiysen ve müşteri bu ürün hakkında soru soruyorsa, önceki önerdiğin ürüne göre cevap ver.
+2. Eğer yeni bir ürün talebi varsa, FAISS indeksinden uygun ürünü bul ve öner.
+3. Yanıtların samimi ve kullanıcı dostu olsun. Örneğin: "Önerdiğim buzdolabının fiyatı 5000 TL'dir."
+4. Müşterinin sorularına en doğru ve ilgili cevabı vermeye çalış.
+
+---
+
+Müşteri sorusu: {input}
 """
 
-
 def generate_response_with_gpt(context_text, query_text, openai_api_key):
-    prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-    previous_context = memory.load_memory_variables({})["history"]
-    prompt = prompt_template.format(context=previous_context + context_text, question=query_text)
+    # Sistem mesajı şablonunu oluşturun
+    system_message_prompt = SystemMessagePromptTemplate.from_template(PROMPT_TEMPLATE)
+
+    # Sohbet geçmişi için bir yer tutucu ekleyin
+    chat_prompt = ChatPromptTemplate(
+        input_variables=["context", "input", "history"],
+        messages=[
+            system_message_prompt,
+            MessagesPlaceholder(variable_name="history"),
+            HumanMessagePromptTemplate.from_template("{input}")
+        ]
+    )
+
+    
     model = ChatOpenAI(openai_api_key=openai_api_key)
-    response_text = model.predict(prompt)
-    update_memory_with_response(query_text, response_text, memory)
+    chain = LLMChain(llm=model, prompt=chat_prompt, memory=memory)
+    inputs = {'context': context_text, 'input': query_text}
+    response_text = chain.run(inputs)
     return response_text
 
 
-# RAG işlemi: FAISS sonuçlarını alıp GPT'ye bağlam olarak veriyoruz
 def search_and_generate_response(query, faiss_index, openai_api_key):
-    results = search_faiss(query, faiss_index, k=5)
+    # Eğer önceki önerilen ürün yoksa (ilk sorguysa), FAISS sorgusu yap
+    if st.session_state['recommended_product'] is None:
+        results = search_faiss(query, faiss_index, k=1)
+        # Önerilen ürünü belleğe kaydet
+        st.session_state['recommended_product'] = results[0]
+    else:
+        # Önceden önerilen ürünü kullan
+        results = [st.session_state['recommended_product']]
 
     retrieved_context = "\n\n".join([
         "\n".join([f"{key}: {value}" for key, value in result.items()])
@@ -154,12 +178,13 @@ def search_and_generate_response(query, faiss_index, openai_api_key):
 
     response_text = generate_response_with_gpt(retrieved_context, query, openai_api_key)
 
-    update_memory_with_response(query, response_text, memory)
-
     return response_text
 
+# Belleği temizlemek için bir buton (opsiyonel)
+if st.button("Yeni arama"):
+    st.session_state['recommended_product'] = None
+    memory.clear()
 
-# Streamlit uygulaması
 if 'messages' not in st.session_state:
     st.session_state['messages'] = []
 
@@ -176,11 +201,13 @@ if submit_button and query_text:
 
 # Mesajları göstermek
 if st.session_state['messages']:
-    for i in range(0, len(st.session_state['messages']), 2):
-        with st.container():
-            if i < len(st.session_state['messages']) and st.session_state['messages'][i]["role"] == "user":
-                st.markdown(f"Kullanıcı: {st.session_state['messages'][i]['content']}")
-            if i + 1 < len(st.session_state['messages']) and st.session_state['messages'][i + 1]["role"] == "bot":
-                st.markdown(f"Buzi: {st.session_state['messages'][i + 1]['content']}")
+    for i in range(len(st.session_state['messages'])):
+        message = st.session_state['messages'][i]
+        role = message['role']
+        content = message['content']
+        if role == 'user':
+            st.markdown(f"**Kullanıcı:** {content}")
+        elif role == 'bot':
+            st.markdown(f"**Buzi:** {content}")
 
         st.markdown("---")
