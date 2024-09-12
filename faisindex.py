@@ -14,7 +14,6 @@ import numpy as np
 import streamlit as st
 import tiktoken
 
-
 # Load environment variables
 load_dotenv()
 openai_api_key = st.secrets["openai"]["OPENAI_API_KEY"]
@@ -30,7 +29,6 @@ if 'df' not in st.session_state:
 
 df = st.session_state['df']
 
-
 def combine_product_info_all_columns(df):
     documents = []
     for idx, row in df.iterrows():
@@ -44,23 +42,19 @@ def combine_product_info_all_columns(df):
 
     return documents
 
-
 # FAISS ve embedding'leri sadece bir kez oluşturalım
 if 'faiss_index' not in st.session_state:
     # Apply the function to the dataframe with all columns
     complete_documents = combine_product_info_all_columns(df)
 
     def split_text(documents: list[Document]):
-        # Belgeyi anlamlı bir bütün olarak bölmek için daha büyük bir chunk_size belirleyin
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,  # Her chunk'ın maksimum karakter boyutunu 1000 olarak belirledim
-            chunk_overlap=100,  # Çakışmayı 100 karakter yaparak bağlam bütünlüğünü koruyabiliriz
+            chunk_size=1000,
+            chunk_overlap=100,
             length_function=len,
-            add_start_index=False  # Her satır tek başına olduğu için start index eklemeye gerek yok
+            add_start_index=False
         )
-
         chunks = text_splitter.split_documents(documents)
-        print(f"{len(documents)} belge {len(chunks)} parçaya bölündü.")
         return chunks
 
     chunked_documents = split_text(complete_documents)
@@ -69,17 +63,15 @@ if 'faiss_index' not in st.session_state:
         embeddings = []
         metadata = []
         for chunk in chunked_documents:
-            product_chunk = chunk.page_content  # Metin parçası
-            embedding = embedding_function.embed_query(product_chunk)  # Embedding işlemi
+            product_chunk = chunk.page_content
+            embedding = embedding_function.embed_query(product_chunk)
             embeddings.append(embedding)
-            metadata.append(chunk.metadata)  # Metadata bilgilerini saklıyoruz
+            metadata.append(chunk.metadata)
         return np.array(embeddings), metadata
 
-    # Embedding işlemi ve metadata alma
     embedded_documents, metadata = embed_product_text(chunked_documents)
     embedded_documents = np.array(embedded_documents, dtype=np.float32)
 
-    # Embedding boyutunu alın
     embedding_dim = embedded_documents.shape[1]
 
     faiss_index = faiss.IndexFlatL2(embedding_dim)
@@ -88,11 +80,9 @@ if 'faiss_index' not in st.session_state:
 
     faiss.normalize_L2(embedded_documents)
 
-    # FAISS indexi oluştur
     faiss_index = faiss.IndexFlatL2(embedding_dim)
-    faiss_index.add(embedded_documents)  # Embedding'leri FAISS indexine ekliyoruz
+    faiss_index.add(embedded_documents)
 
-    # FAISS indexini ve metadata'yı session_state'de sakla
     st.session_state['faiss_index'] = faiss_index
     st.session_state['metadata'] = metadata
 else:
@@ -105,29 +95,18 @@ def search_faiss(query, index, k=5):
     query_embedding = embedding_function.embed_query(query)
     query_embedding = np.array([query_embedding])
 
-    # FAISS ile en yakın k komşuyu bul
     distances, indices = index.search(query_embedding, k)
 
-    # Bulunan sonuçları metadata ile eşleştirip geri döndür
     results = [metadata[i] for i in indices[0]]
     return results
 
 
-# RAG işlemi: FAISS sonuçlarını alıp GPT'ye bağlam olarak veriyoruz
-def search_and_generate_response(query, faiss_index, openai_api_key):
-    # FAISS ile ürünü ara
-    results = search_faiss(query, faiss_index, k=5)
+# Bellek modülü ile önceki yanıtların kaydedilmesi
+memory = ConversationBufferWindowMemory(k=5)
 
-    # FAISS sonuçlarını bağlama dönüştür (tüm metadata'yı al)
-    retrieved_context = "\n\n".join([
-        "\n".join([f"{key}: {value}" for key, value in result.items()])  # Her bir metadata anahtar-değer çiftini alıyoruz
-        for result in results
-    ])
-
-    # GPT yanıtını al
-    response_text = generate_response_with_gpt(retrieved_context, query, openai_api_key)
-
-    return response_text
+# Bellek güncelleme fonksiyonu
+def update_memory_with_response(query, response, memory):
+    memory.save_context({"input": query}, {"output": response})
 
 # GPT-3.5 ile Soru Cevaplama Yapısı
 PROMPT_TEMPLATE = """
@@ -152,27 +131,35 @@ Müşteriye soruları yanıtlarken şu adımları izle:
 
 Soru: {question}
 """
-memory = ConversationBufferWindowMemory(k=5)
+
 
 def generate_response_with_gpt(context_text, query_text, openai_api_key):
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-    
-    # Kullanıcı ve bot mesajlarını bağlama dahil ediyoruz
-    previous_context = "\n".join([f"Kullanıcı: {msg['content']}" if msg['role'] == "user" else f"Buzi: {msg['content']}" 
-                                  for msg in st.session_state['messages']])
-    
-    # Sohbet geçmişini ve bağlamı kullanarak GPT modeline prompt oluşturuyoruz
-    prompt = prompt_template.format(context=previous_context + "\n\n" + context_text, question=query_text)
-    
+    previous_context = memory.load_memory_variables({})["history"]
+    prompt = prompt_template.format(context=previous_context + context_text, question=query_text)
     model = ChatOpenAI(openai_api_key=openai_api_key)
     response_text = model.predict(prompt)
-    
-    memory.save_context({"input": query_text}, {"output": response_text})
+    update_memory_with_response(query_text, response_text, memory)
+    return response_text
+
+
+# RAG işlemi: FAISS sonuçlarını alıp GPT'ye bağlam olarak veriyoruz
+def search_and_generate_response(query, faiss_index, openai_api_key):
+    results = search_faiss(query, faiss_index, k=5)
+
+    retrieved_context = "\n\n".join([
+        "\n".join([f"{key}: {value}" for key, value in result.items()])
+        for result in results
+    ])
+
+    response_text = generate_response_with_gpt(retrieved_context, query, openai_api_key)
+
+    update_memory_with_response(query, response_text, memory)
+
     return response_text
 
 
 # Streamlit uygulaması
-# İlk olarak session_state'te 'messages' anahtarını başlatıyoruz
 if 'messages' not in st.session_state:
     st.session_state['messages'] = []
 
@@ -180,28 +167,20 @@ with st.form(key='chat_form'):
     query_text = st.text_input("Merhaba! Ben asistanınız Buzi. Buzdolapları hakkında size bilgi verebilirim.:")
     submit_button = st.form_submit_button(label='Gönder')
 
-# Eğer form gönderildiyse (Enter'a basıldığında)
 if submit_button and query_text:
-    # Kullanıcı mesajını session_state'e ekle
     st.session_state['messages'].append({"role": "user", "content": query_text})
 
-    # FAISS ile sorgu yapıp GPT yanıtını alıyoruz
     response_text = search_and_generate_response(query_text, faiss_index, openai_api_key)
 
-    # Bot yanıtını mesajlara ekle
     st.session_state['messages'].append({"role": "bot", "content": response_text})
 
-# Mesajları aşağıdan yukarıya doğru sırayla göstermek için ters çevirme
-# Mesajları aşağıdan yukarıya doğru sırayla göstermek için ters çevirme
+# Mesajları göstermek
 if st.session_state['messages']:
     for i in range(0, len(st.session_state['messages']), 2):
-        with st.container():  # Kullanıcı ve bot mesajlarını bir container içine alıyoruz
-            # Kullanıcı mesajı varsa
+        with st.container():
             if i < len(st.session_state['messages']) and st.session_state['messages'][i]["role"] == "user":
-                st.markdown(f"*Kullanıcı:* {st.session_state['messages'][i]['content']}")
-            # Bot yanıtı varsa
+                st.markdown(f"Kullanıcı: {st.session_state['messages'][i]['content']}")
             if i + 1 < len(st.session_state['messages']) and st.session_state['messages'][i + 1]["role"] == "bot":
-                st.markdown(f"*Buzi:* {st.session_state['messages'][i + 1]['content']}")
+                st.markdown(f"Buzi: {st.session_state['messages'][i + 1]['content']}")
 
-        st.markdown("---")  # Mesajlar arasında ayırıcı çizgi (isteğe bağlı)
-
+        st.markdown("---")
