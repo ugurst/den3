@@ -17,9 +17,10 @@ import tiktoken
 
 # Load environment variables
 load_dotenv()
-# openai_api_key = os.getenv("OPENAI_API_KEY")
-openai_api_key = st.secrets["openai"]["OPENAI_API_KEY"]
+openai_api_key = st.secrets["OPENAI_API_KEY"]
 
+# Embedding işlemi için OpenAI Embedding fonksiyonunu tanımla
+embedding_function = OpenAIEmbeddings(model="text-embedding-3-large", openai_api_key=openai_api_key)
 
 # Dosyayı sadece bir kez yükleyip, tekrar tekrar yüklenmesini önleyelim
 if 'df' not in st.session_state:
@@ -44,57 +45,59 @@ def combine_product_info_all_columns(df):
     return documents
 
 
-# Apply the function to the dataframe with all columns
-complete_documents = combine_product_info_all_columns(df)
+# FAISS ve embedding'leri sadece bir kez oluşturalım
+if 'faiss_index' not in st.session_state:
+    # Apply the function to the dataframe with all columns
+    complete_documents = combine_product_info_all_columns(df)
 
+    def split_text(documents: list[Document]):
+        # Belgeyi anlamlı bir bütün olarak bölmek için daha büyük bir chunk_size belirleyin
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,  # Her chunk'ın maksimum karakter boyutunu 1000 olarak belirledim
+            chunk_overlap=100,  # Çakışmayı 100 karakter yaparak bağlam bütünlüğünü koruyabiliriz
+            length_function=len,
+            add_start_index=False  # Her satır tek başına olduğu için start index eklemeye gerek yok
+        )
 
-def split_text(documents: list[Document]):
-    # Belgeyi anlamlı bir bütün olarak bölmek için daha büyük bir chunk_size belirleyin
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,  # Her chunk'ın maksimum karakter boyutunu 1000 olarak belirledim
-        chunk_overlap=100,  # Çakışmayı 100 karakter yaparak bağlam bütünlüğünü koruyabiliriz
-        length_function=len,
-        add_start_index=False  # Her satır tek başına olduğu için start index eklemeye gerek yok
-    )
+        chunks = text_splitter.split_documents(documents)
+        print(f"{len(documents)} belge {len(chunks)} parçaya bölündü.")
+        return chunks
 
-    chunks = text_splitter.split_documents(documents)
-    print(f"{len(documents)} belge {len(chunks)} parçaya bölündü.")
-    return chunks
+    chunked_documents = split_text(complete_documents)
 
+    def embed_product_text(chunked_documents):
+        embeddings = []
+        metadata = []
+        for chunk in chunked_documents:
+            product_chunk = chunk.page_content  # Metin parçası
+            embedding = embedding_function.embed_query(product_chunk)  # Embedding işlemi
+            embeddings.append(embedding)
+            metadata.append(chunk.metadata)  # Metadata bilgilerini saklıyoruz
+        return np.array(embeddings), metadata
 
-chunked_documents = split_text(complete_documents)
+    # Embedding işlemi ve metadata alma
+    embedded_documents, metadata = embed_product_text(chunked_documents)
+    embedded_documents = np.array(embedded_documents, dtype=np.float32)
 
-# OpenAI Embedding işlemi
-embedding_function = OpenAIEmbeddings(model="text-embedding-ada-002", openai_api_key=openai_api_key)
+    # Embedding boyutunu alın
+    embedding_dim = embedded_documents.shape[1]
 
+    faiss_index = faiss.IndexFlatL2(embedding_dim)
 
-def embed_product_text(chunked_documents):
-    embeddings = []
-    metadata = []
-    for chunk in chunked_documents:
-        product_chunk = chunk.page_content  # Metin parçası
-        embedding = embedding_function.embed_query(product_chunk)  # Embedding işlemi
-        embeddings.append(embedding)
-        metadata.append(chunk.metadata)  # Metadata bilgilerini saklıyoruz
-    return np.array(embeddings), metadata
+    embedded_documents = np.array(embedded_documents, dtype=np.float32)
 
+    faiss.normalize_L2(embedded_documents)
 
-# Embedding işlemi ve metadata alma
-embedded_documents, metadata = embed_product_text(chunked_documents)
-embedded_documents = np.array(embedded_documents, dtype=np.float32)
+    # FAISS indexi oluştur
+    faiss_index = faiss.IndexFlatL2(embedding_dim)
+    faiss_index.add(embedded_documents)  # Embedding'leri FAISS indexine ekliyoruz
 
-# Embedding boyutunu alın
-embedding_dim = embedded_documents.shape[1]
-
-faiss_index = faiss.IndexFlatL2(embedding_dim)
-
-embedded_documents = np.array(embedded_documents, dtype=np.float32)
-
-faiss.normalize_L2(embedded_documents)
-
-# FAISS indexi oluştur
-faiss_index = faiss.IndexFlatL2(embedding_dim)
-faiss_index.add(embedded_documents)  # Embedding'leri FAISS indexine ekliyoruz
+    # FAISS indexini ve metadata'yı session_state'de sakla
+    st.session_state['faiss_index'] = faiss_index
+    st.session_state['metadata'] = metadata
+else:
+    faiss_index = st.session_state['faiss_index']
+    metadata = st.session_state['metadata']
 
 
 # FAISS ile sorgu yapma
@@ -126,7 +129,6 @@ def search_and_generate_response(query, faiss_index, openai_api_key):
 
     return response_text
 
-
 # GPT-3.5 ile Soru Cevaplama Yapısı
 PROMPT_TEMPLATE = """
 Sen bir müşteri hizmetleri temsilcisi gibi davran ve aşağıdaki ürün bilgilerini kullanarak soruları cevapla:
@@ -140,10 +142,11 @@ Müşteriye soruları yanıtlarken şu adımları izle:
 2. Eğer ürün seçenekleri genişse, müşteriye maksimum 2 ürün öner.
 3. Yanıtların samimi ve kullanıcı dostu olsun. Örneğin: "Evet, elimizde beyaz buzdolabı var. Tercih ettiğiniz bir marka var mı?"
 4. Eğer soru buzdolabı veya buzlukta saklanabilecek yiyeceklerle ilgiliyse, şu yanıtları kullan:
-
    - Buzdolabında genellikle süt ürünleri, sebzeler, meyveler, pişmiş yemekler ve içecekler saklanır. 
    - Et, balık ve tavuk gibi çiğ gıdalar genellikle buzdolabının alt rafında saklanmalıdır.
    - Buzlukta ise dondurulmuş sebzeler, dondurma, et, balık, tavuk ve buz saklanabilir. Dondurulmuş gıdalar uzun süre saklanabilir ve gerektiğinde çözdürülüp kullanılabilir.
+5. Meta datalara iyi odaklan, kullanıcının sorusuna en doğru cevabı vermeye çalış ve dinamik yapıdan kopma. Ürünler hakkında detaylı açıklamalar ver.
+6. Neden bu ürünü tercih etmeliyim? Neden Bu ürünü almalıyım gibi sorulara ikna edici cevaplar vermelisin
 
 ---
 
