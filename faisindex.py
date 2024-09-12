@@ -17,7 +17,7 @@ import tiktoken
 
 # Load environment variables
 load_dotenv()
-openai_api_key = st.secrets["OPENAI_API_KEY"]
+openai_api_key = st.secrets["openai"]["OPENAI_API_KEY"]
 
 # Embedding işlemi için OpenAI Embedding fonksiyonunu tanımla
 embedding_function = OpenAIEmbeddings(model="text-embedding-3-large", openai_api_key=openai_api_key)
