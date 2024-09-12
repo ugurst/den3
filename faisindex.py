@@ -175,10 +175,10 @@ def search_and_generate_response(query, faiss_index, openai_api_key):
 
     return response_text
 
-# Belleği temizlemek için bir buton (opsiyonel)
-# if st.button("Yeni arama - !Memory sıfırlanır!"):
-#     st.session_state['recommended_product'] = None
-#     memory.clear()
+Belleği temizlemek için bir buton (opsiyonel)
+if st.button("ARAMA GEÇMİŞİNİ SIFIRLA"):
+    st.session_state['recommended_product'] = None
+    memory.clear()
 
 if 'messages' not in st.session_state:
     st.session_state['messages'] = []
