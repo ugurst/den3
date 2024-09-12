@@ -91,7 +91,7 @@ else:
 
 
 # FAISS ile sorgu yapma
-def search_faiss(query, index, k=5):
+def search_faiss(query, index, k=10):
     query_embedding = embedding_function.embed_query(query)
     query_embedding = np.array([query_embedding])
 
