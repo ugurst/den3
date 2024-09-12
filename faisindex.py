@@ -45,7 +45,6 @@ def combine_product_info_all_columns(df):
 
     return documents
 
-# FAISS ve embedding'leri sadece bir kez oluştur
 if 'faiss_index' not in st.session_state:
     # Apply the function to the dataframe with all columns
     complete_documents = combine_product_info_all_columns(df)
@@ -93,7 +92,7 @@ else:
     metadata = st.session_state['metadata']
 
 
-# FAISS ile sorgu yapma
+
 def search_faiss(query, index, k=10):
     query_embedding = embedding_function.embed_query(query)
     query_embedding = np.array([query_embedding])
@@ -101,8 +100,6 @@ def search_faiss(query, index, k=10):
     results = [metadata[i] for i in indices[0]]
     return results
 
-
-# Bellek modülü ile önceki yanıtların kaydedilmesi
 memory = ConversationBufferWindowMemory(
     k=5,
     memory_key="history",
@@ -110,11 +107,9 @@ memory = ConversationBufferWindowMemory(
     return_messages=True
 )
 
-# Belleğe ek olarak önerilen ürünü saklamak için bir değişken
 if 'recommended_product' not in st.session_state:
     st.session_state['recommended_product'] = None
 
-# GPT-3.5 ile
 PROMPT_TEMPLATE = """
 Sen bir müşteri hizmetleri temsilcisi gibi davran ve aşağıdaki ürün bilgisini kullanarak soruları cevapla:
 
@@ -162,13 +157,13 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
 
 
 def search_and_generate_response(query, faiss_index, openai_api_key):
-    # Eğer önceki önerilen ürün yoksa (ilk sorguysa), FAISS sorgusu yap
+    
     if st.session_state['recommended_product'] is None:
         results = search_faiss(query, faiss_index, k=1)
-        # Önerilen ürünü belleğe kaydet
+        
         st.session_state['recommended_product'] = results[0]
     else:
-        # Önceden önerilen ürünü kullan
+        
         results = [st.session_state['recommended_product']]
 
     retrieved_context = "\n\n".join([
@@ -199,7 +194,7 @@ if submit_button and query_text:
 
     st.session_state['messages'].append({"role": "bot", "content": response_text})
 
-# Mesajları göster
+
 if st.session_state['messages']:
     for i in range(len(st.session_state['messages'])):
         message = st.session_state['messages'][i]
