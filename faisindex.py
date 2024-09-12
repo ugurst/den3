@@ -156,10 +156,17 @@ memory = ConversationBufferWindowMemory(k=5)
 
 def generate_response_with_gpt(context_text, query_text, openai_api_key):
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
-    previous_context = memory.load_memory_variables({})["history"]
+
+    
+    previous_context = "\n".join([f"Kullanıcı: {msg['content']}" if msg['role'] == "user" else f"Buzi: {msg['content']}"
+                                  for msg in st.session_state['messages']])
+
+    
     prompt = prompt_template.format(context=previous_context + context_text, question=query_text)
+
     model = ChatOpenAI(openai_api_key=openai_api_key)
     response_text = model.predict(prompt)
+
     memory.save_context({"input": query_text}, {"output": response_text})
     return response_text
 
@@ -195,4 +202,4 @@ if st.session_state['messages']:
             if i + 1 < len(st.session_state['messages']) and st.session_state['messages'][i + 1]["role"] == "bot":
                 st.markdown(f"*Buzi:* {st.session_state['messages'][i + 1]['content']}")
 
-        st.markdown("---")  # Mesajlar arasında ayırıcı çizgi (isteğe bağlı)
+        st.markdown("---")  
