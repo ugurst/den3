@@ -45,7 +45,7 @@ def combine_product_info_all_columns(df):
 
     return documents
 
-# FAISS ve embedding'leri sadece bir kez oluşturalım
+# FAISS ve embedding'leri sadece bir kez oluştur
 if 'faiss_index' not in st.session_state:
     # Apply the function to the dataframe with all columns
     complete_documents = combine_product_info_all_columns(df)
@@ -114,7 +114,7 @@ memory = ConversationBufferWindowMemory(
 if 'recommended_product' not in st.session_state:
     st.session_state['recommended_product'] = None
 
-# GPT-3.5 ile Soru Cevaplama Yapısı
+# GPT-3.5 ile
 PROMPT_TEMPLATE = """
 Sen bir müşteri hizmetleri temsilcisi gibi davran ve aşağıdaki ürün bilgisini kullanarak soruları cevapla:
 
@@ -199,7 +199,7 @@ if submit_button and query_text:
 
     st.session_state['messages'].append({"role": "bot", "content": response_text})
 
-# Mesajları göstermek
+# Mesajları göster
 if st.session_state['messages']:
     for i in range(len(st.session_state['messages'])):
         message = st.session_state['messages'][i]
