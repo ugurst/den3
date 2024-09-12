@@ -152,7 +152,7 @@ Müşteriye soruları yanıtlarken şu adımları izle:
 
 Soru: {question}
 """
-memory = ConversationBufferWindowMemory(k=10)
+memory = ConversationBufferWindowMemory(k=5)
 
 def generate_response_with_gpt(context_text, query_text, openai_api_key):
     prompt_template = ChatPromptTemplate.from_template(PROMPT_TEMPLATE)
@@ -162,7 +162,7 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
                                   for msg in st.session_state['messages']])
     
     # Sohbet geçmişini ve bağlamı kullanarak GPT modeline prompt oluşturuyoruz
-    prompt = prompt_template.format(context=previous_context + context_text, question=query_text)
+    prompt = prompt_template.format(context=previous_context + "\n\n" + context_text, question=query_text)
     
     model = ChatOpenAI(openai_api_key=openai_api_key)
     response_text = model.predict(prompt)
