@@ -153,7 +153,7 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
     return response_text
 
 def search_and_generate_response(query, faiss_index, openai_api_key):
-    # Her kullanıcı girişi için FAISS indeksinde arama yap
+    
     results = search_faiss(query, faiss_index, k=3)  # En iyi 3 sonucu alabilirsiniz
 
     # Önerilen ürünleri güncelleyin
