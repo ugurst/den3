@@ -18,16 +18,13 @@ import streamlit as st
 from langchain.prompts.chat import MessagesPlaceholder
 from langchain.chains import LLMChain
 
-
 load_dotenv()
 openai_api_key = st.secrets["openai"]["OPENAI_API_KEY"]
-
 
 embedding_function = OpenAIEmbeddings(
     model="text-embedding-3-large",
     openai_api_key=openai_api_key
 )
-
 
 if 'df' not in st.session_state:
     file_path = 'documents2.xlsx'
@@ -46,7 +43,7 @@ def combine_product_info_all_columns(df):
     return documents
 
 if 'faiss_index' not in st.session_state:
-    # Apply the function to the dataframe with all columns
+    # Tüm sütunlarla ürün bilgilerini birleştirin
     complete_documents = combine_product_info_all_columns(df)
 
     def split_text(documents: list[Document]):
@@ -91,8 +88,6 @@ else:
     faiss_index = st.session_state['faiss_index']
     metadata = st.session_state['metadata']
 
-
-
 def search_faiss(query, index, k=10):
     query_embedding = embedding_function.embed_query(query)
     query_embedding = np.array([query_embedding])
@@ -100,15 +95,19 @@ def search_faiss(query, index, k=10):
     results = [metadata[i] for i in indices[0]]
     return results
 
-memory = ConversationBufferWindowMemory(
-    k=100,
-    memory_key="history",
-    input_key="input",
-    return_messages=True
-)
+# Belleği st.session_state içinde saklayın
+if 'memory' not in st.session_state:
+    st.session_state['memory'] = ConversationBufferWindowMemory(
+        k=100,
+        memory_key="history",
+        input_key="input",
+        return_messages=True
+    )
 
-if 'recommended_product' not in st.session_state:
-    st.session_state['recommended_product'] = None
+memory = st.session_state['memory']
+
+if 'recommended_products' not in st.session_state:
+    st.session_state['recommended_products'] = None
 
 PROMPT_TEMPLATE = """
 Sen bir müşteri hizmetleri temsilcisi gibi davran ve aşağıdaki ürün bilgisini kullanarak soruları cevapla:
@@ -138,7 +137,6 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
     # Sistem mesajı şablonunu oluşturun
     system_message_prompt = SystemMessagePromptTemplate.from_template(PROMPT_TEMPLATE)
 
-    
     chat_prompt = ChatPromptTemplate(
         input_variables=["context", "input", "history"],
         messages=[
@@ -148,23 +146,18 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
         ]
     )
 
-    
     model = ChatOpenAI(openai_api_key=openai_api_key)
     chain = LLMChain(llm=model, prompt=chat_prompt, memory=memory)
     inputs = {'context': context_text, 'input': query_text}
     response_text = chain.run(inputs)
     return response_text
 
-
 def search_and_generate_response(query, faiss_index, openai_api_key):
-    
-    if st.session_state['recommended_product'] is None:
-        results = search_faiss(query, faiss_index, k=1)
-        
-        st.session_state['recommended_product'] = results[0]
-    else:
-        
-        results = [st.session_state['recommended_product']]
+    # Her kullanıcı girişi için FAISS indeksinde arama yap
+    results = search_faiss(query, faiss_index, k=3)  # En iyi 3 sonucu alabilirsiniz
+
+    # Önerilen ürünleri güncelleyin
+    st.session_state['recommended_products'] = results
 
     retrieved_context = "\n\n".join([
         "\n".join([f"{key}: {value}" for key, value in result.items()])
@@ -175,10 +168,11 @@ def search_and_generate_response(query, faiss_index, openai_api_key):
 
     return response_text
 
-
 if st.button("ARAMA GEÇMİŞİNİ SIFIRLA"):
-    st.session_state['recommended_product'] = None
-    memory.clear()
+    st.session_state['recommended_products'] = None
+    st.session_state['memory'].clear()
+    st.session_state['messages'] = []
+    st.success("Sohbet geçmişi başarıyla sıfırlandı.")
 
 if 'messages' not in st.session_state:
     st.session_state['messages'] = []
@@ -193,7 +187,6 @@ if submit_button and query_text:
     response_text = search_and_generate_response(query_text, faiss_index, openai_api_key)
 
     st.session_state['messages'].append({"role": "bot", "content": response_text})
-
 
 if st.session_state['messages']:
     for i in range(len(st.session_state['messages'])):
