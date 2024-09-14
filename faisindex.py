@@ -18,11 +18,8 @@ import streamlit as st
 from langchain.prompts.chat import MessagesPlaceholder
 from langchain.chains import LLMChain
 
-# .env dosyasını yükle
 load_dotenv()
-
-# OpenAI API anahtarını Streamlit sırlarından al
-openai_api_key =  os.getenv("OPENAI_API_KEY")
+openai_api_key = st.secrets["openai"]["OPENAI_API_KEY"]
 
 # Embedding fonksiyonunu ayarla
 embedding_function = OpenAIEmbeddings(
