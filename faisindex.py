@@ -101,7 +101,7 @@ def search_faiss(query, index, k=10):
     return results
 
 memory = ConversationBufferWindowMemory(
-    k=5,
+    k=100,
     memory_key="history",
     input_key="input",
     return_messages=True
