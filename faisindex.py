@@ -95,7 +95,6 @@ def search_faiss(query, index, k=10):
     results = [metadata[i] for i in indices[0]]
     return results
 
-# Belleği st.session_state içinde saklayın
 if 'memory' not in st.session_state:
     st.session_state['memory'] = ConversationBufferWindowMemory(
         k=100,
@@ -154,9 +153,8 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
 
 def search_and_generate_response(query, faiss_index, openai_api_key):
     
-    results = search_faiss(query, faiss_index, k=3)  # En iyi 3 sonucu alabilirsiniz
+    results = search_faiss(query, faiss_index, k=3) 
 
-    # Önerilen ürünleri güncelleyin
     st.session_state['recommended_products'] = results
 
     retrieved_context = "\n\n".join([
