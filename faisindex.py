@@ -126,6 +126,7 @@ Müşteri sorusu: {input}
 
 def generate_response_with_gpt(context_text, query_text, openai_api_key):
     system_message_prompt = SystemMessagePromptTemplate.from_template(PROMPT_TEMPLATE)
+
     chat_prompt = ChatPromptTemplate(
         input_variables=["context", "input", "history"],
         messages=[
@@ -134,6 +135,7 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
             HumanMessagePromptTemplate.from_template("{input}")
         ]
     )
+
     model = ChatOpenAI(openai_api_key=openai_api_key, temperature=0.7)
     chain = LLMChain(llm=model, prompt=chat_prompt, memory=memory)
     inputs = {'context': context_text, 'input': query_text}
