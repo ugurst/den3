@@ -4,11 +4,7 @@ import openai
 import os
 import pandas as pd
 from langchain.schema import Document
-from langchain.prompts import (
-    ChatPromptTemplate,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate
-)
+from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain_community.chat_models import ChatOpenAI
 from dotenv import load_dotenv
 from langchain.memory import ConversationBufferWindowMemory
@@ -19,7 +15,7 @@ from langchain.prompts.chat import MessagesPlaceholder
 from langchain.chains import LLMChain
 
 load_dotenv()
-openai_api_key = st.secrets["openai"]["OPENAI_API_KEY"]
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
 embedding_function = OpenAIEmbeddings(
     model="text-embedding-3-large",
@@ -39,11 +35,9 @@ def combine_product_info_all_columns(df):
         product_description = "\n".join([f"{col}: {row[col]}" for col in df.columns])
         metadata = {col: row[col] for col in df.columns}
         documents.append(Document(page_content=product_description, metadata=metadata))
-
     return documents
 
 if 'faiss_index' not in st.session_state:
-    # Tüm sütunlarla ürün bilgilerini birleştirin
     complete_documents = combine_product_info_all_columns(df)
 
     def split_text(documents: list[Document]):
@@ -75,11 +69,8 @@ if 'faiss_index' not in st.session_state:
 
     faiss_index = faiss.IndexFlatL2(embedding_dim)
 
-    embedded_documents = np.array(embedded_documents, dtype=np.float32)
-
     faiss.normalize_L2(embedded_documents)
 
-    faiss_index = faiss.IndexFlatL2(embedding_dim)
     faiss_index.add(embedded_documents)
 
     st.session_state['faiss_index'] = faiss_index
@@ -90,7 +81,8 @@ else:
 
 def search_faiss(query, index, k=10):
     query_embedding = embedding_function.embed_query(query)
-    query_embedding = np.array([query_embedding])
+    query_embedding = np.array([query_embedding]).astype(np.float32)
+    faiss.normalize_L2(query_embedding)
     distances, indices = index.search(query_embedding, k)
     results = [metadata[i] for i in indices[0]]
     return results
@@ -133,9 +125,7 @@ Müşteri sorusu: {input}
 """
 
 def generate_response_with_gpt(context_text, query_text, openai_api_key):
-    # Sistem mesajı şablonunu oluşturun
     system_message_prompt = SystemMessagePromptTemplate.from_template(PROMPT_TEMPLATE)
-
     chat_prompt = ChatPromptTemplate(
         input_variables=["context", "input", "history"],
         messages=[
@@ -144,17 +134,14 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
             HumanMessagePromptTemplate.from_template("{input}")
         ]
     )
-
-    model = ChatOpenAI(openai_api_key=openai_api_key)
+    model = ChatOpenAI(openai_api_key=openai_api_key, temperature=0.7)
     chain = LLMChain(llm=model, prompt=chat_prompt, memory=memory)
     inputs = {'context': context_text, 'input': query_text}
     response_text = chain.run(inputs)
     return response_text
 
 def search_and_generate_response(query, faiss_index, openai_api_key):
-    
-    results = search_faiss(query, faiss_index, k=3) 
-
+    results = search_faiss(query, faiss_index, k=3)
     st.session_state['recommended_products'] = results
 
     retrieved_context = "\n\n".join([
@@ -163,8 +150,9 @@ def search_and_generate_response(query, faiss_index, openai_api_key):
     ])
 
     response_text = generate_response_with_gpt(retrieved_context, query, openai_api_key)
-
     return response_text
+
+st.title("Buzi - Buzdolabı Asistanı")
 
 if st.button("ARAMA GEÇMİŞİNİ SIFIRLA"):
     st.session_state['recommended_products'] = None
@@ -175,25 +163,17 @@ if st.button("ARAMA GEÇMİŞİNİ SIFIRLA"):
 if 'messages' not in st.session_state:
     st.session_state['messages'] = []
 
-with st.form(key='chat_form'):
-    query_text = st.text_input("Merhaba! Ben asistanınız Buzi. Buzdolapları hakkında size bilgi verebilirim.:")
-    submit_button = st.form_submit_button(label='Gönder')
-
-if submit_button and query_text:
-    st.session_state['messages'].append({"role": "user", "content": query_text})
-
-    response_text = search_and_generate_response(query_text, faiss_index, openai_api_key)
-
+if prompt := st.chat_input("Merhaba! Ben asistanınız Buzi. Buzdolapları hakkında size bilgi verebilirim."):
+    st.session_state['messages'].append({"role": "user", "content": prompt})
+    response_text = search_and_generate_response(prompt, faiss_index, openai_api_key)
     st.session_state['messages'].append({"role": "bot", "content": response_text})
 
-if st.session_state['messages']:
-    for i in range(len(st.session_state['messages'])):
-        message = st.session_state['messages'][i]
-        role = message['role']
-        content = message['content']
-        if role == 'user':
-            st.markdown(f"**Kullanıcı:** {content}")
-        elif role == 'bot':
-            st.markdown(f"**Buzi:** {content}")
-
-        st.markdown("---")
+for message in st.session_state['messages']:
+    role = message['role']
+    content = message['content']
+    if role == 'user':
+        with st.chat_message("user"):
+            st.markdown(content)
+    elif role == 'bot':
+        with st.chat_message("assistant"):
+            st.markdown(content)
