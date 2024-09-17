@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
+import pickle
 from langchain.schema import Document
 from langchain.chains import LLMChain
 from langchain.memory import ConversationBufferWindowMemory
@@ -50,11 +51,28 @@ def create_faiss_index(documents):
     index.add(embeddings)
     return index, metadata
 
+# İndeks ve metadata dosyalarının yolları
+INDEX_PATH = 'faiss_index.bin'
+METADATA_PATH = 'metadata.pkl'
+
 if 'faiss_index' not in st.session_state:
-    documents = prepare_documents(df)
-    faiss_index, metadata = create_faiss_index(documents)
-    st.session_state['faiss_index'] = faiss_index
-    st.session_state['metadata'] = metadata
+    if os.path.exists(INDEX_PATH) and os.path.exists(METADATA_PATH):
+        # İndeksi ve metadataları diskten yükleyin
+        faiss_index = faiss.read_index(INDEX_PATH)
+        with open(METADATA_PATH, 'rb') as f:
+            metadata = pickle.load(f)
+        st.session_state['faiss_index'] = faiss_index
+        st.session_state['metadata'] = metadata
+    else:
+        # İndeksi ve metadataları oluşturun
+        documents = prepare_documents(df)
+        faiss_index, metadata = create_faiss_index(documents)
+        # İndeksi ve metadataları disk üzerinde kaydedin
+        faiss.write_index(faiss_index, INDEX_PATH)
+        with open(METADATA_PATH, 'wb') as f:
+            pickle.dump(metadata, f)
+        st.session_state['faiss_index'] = faiss_index
+        st.session_state['metadata'] = metadata
 else:
     faiss_index = st.session_state['faiss_index']
     metadata = st.session_state['metadata']
@@ -143,7 +161,6 @@ def search_and_generate_response(query):
             all_prices.append((float(price), item))
     min_price_item = min(all_prices, key=lambda x: x[0])[1] if all_prices else None
     min_price = min(all_prices, key=lambda x: x[0])[0] if all_prices else None
-    max_price_item = max(all_prices, key=lambda x: x[0])[1] if all_prices else None
     max_price = max(all_prices, key=lambda x: x[0])[0] if all_prices else None
 
     if wants_cheapest and min_price_item:
