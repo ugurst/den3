@@ -13,9 +13,10 @@ import numpy as np
 import streamlit as st
 from langchain.prompts.chat import MessagesPlaceholder
 from langchain.chains import LLMChain
+import re  # Regex modülünü ekledik
 
 load_dotenv()
-openai_api_key = st.secrets["openai"]["OPENAI_API_KEY"]
+openai_api_key = os.getenv("OPENAI_API_KEY")
 
 embedding_function = OpenAIEmbeddings(
     model="text-embedding-3-large",
@@ -28,6 +29,22 @@ if 'df' not in st.session_state:
     st.session_state['df'] = pd.read_excel(xls, sheet_name=xls.sheet_names[0])
 
 df = st.session_state['df']
+
+def clean_price(price_str):
+    price_str = str(price_str)
+    price_str = price_str.replace('TRY', '').replace('TL', '').strip()
+    price_str = price_str.replace('.', '').replace(',', '')
+    price_str = re.sub(r'[^\d]', '', price_str)
+    try:
+        return float(price_str)
+    except ValueError:
+        return None
+
+df['Fiyat'] = df['Fiyat'].apply(clean_price)
+df = df[df['Fiyat'].notnull()]  # Geçersiz fiyatları kaldırma
+
+# Minimum fiyatı belirleme
+min_price = df['Fiyat'].min()
 
 def combine_product_info_all_columns(df):
     documents = []
@@ -114,21 +131,24 @@ Sohbet geçmişi:
 ---
 
 Müşteriye soruları yanıtlarken şu adımları izle:
-1. Eğer bir ürün önerdiysen ve müşteri bu ürün hakkında soru soruyorsa, önceki önerdiğin ürüne göre cevap ver.
-2. Eğer yeni bir ürün talebi varsa, FAISS indeksinden uygun ürünü bul ve öner.
-3. Yanıtların samimi ve kullanıcı dostu olsun. Örneğin: "Önerdiğim buzdolabının fiyatı 5000 TL'dir."
-4. Müşterinin sorularına en doğru ve ilgili cevabı vermeye çalış.
+1. Müşterinin sorusundan bütçe ve isteklerini anla.
+2. Ürün listesinden müşterinin bütçesine ve isteklerine en uygun ürünleri seç ve öner.
+3. Eğer müşterinin bütçesine uygun ürün yoksa, bunu nazikçe belirt ve bütçesine en yakın fiyatlı ürünü öner.
+4. Yanıtların samimi ve kullanıcı dostu olsun.
+5. Müşterinin sorularına en doğru ve ilgili cevabı vermeye çalış.
 
 ---
+
+En düşük ürün fiyatı: {min_price} TL
 
 Müşteri sorusu: {input}
 """
 
-def generate_response_with_gpt(context_text, query_text, openai_api_key):
+def generate_response_with_gpt(context_text, query_text, openai_api_key, min_price):
     system_message_prompt = SystemMessagePromptTemplate.from_template(PROMPT_TEMPLATE)
 
     chat_prompt = ChatPromptTemplate(
-        input_variables=["context", "input", "history"],
+        input_variables=["context", "input", "history", "min_price"],
         messages=[
             system_message_prompt,
             MessagesPlaceholder(variable_name="history"),
@@ -136,14 +156,14 @@ def generate_response_with_gpt(context_text, query_text, openai_api_key):
         ]
     )
 
-    model = ChatOpenAI(openai_api_key=openai_api_key, temperature=0.7)
+    model = ChatOpenAI(openai_api_key=openai_api_key, temperature=0.5)
     chain = LLMChain(llm=model, prompt=chat_prompt, memory=memory)
-    inputs = {'context': context_text, 'input': query_text}
+    inputs = {'context': context_text, 'input': query_text, 'min_price': min_price}
     response_text = chain.run(inputs)
     return response_text
 
 def search_and_generate_response(query, faiss_index, openai_api_key):
-    results = search_faiss(query, faiss_index, k=3)
+    results = search_faiss(query, faiss_index, k=10)
     st.session_state['recommended_products'] = results
 
     retrieved_context = "\n\n".join([
@@ -151,7 +171,7 @@ def search_and_generate_response(query, faiss_index, openai_api_key):
         for result in results
     ])
 
-    response_text = generate_response_with_gpt(retrieved_context, query, openai_api_key)
+    response_text = generate_response_with_gpt(retrieved_context, query, openai_api_key, min_price)
     return response_text
 
 st.title("Buzi - Buzdolabı Asistanı")
