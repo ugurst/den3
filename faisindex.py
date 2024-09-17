@@ -18,7 +18,8 @@ from langchain.prompts import (
 )
 
 load_dotenv()
-openai_api_key = st.secrets["openai"]["OPENAI_API_KEY"]
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
 embedding_function = OpenAIEmbeddings(
     model="text-embedding-3-large",
     openai_api_key=openai_api_key
@@ -69,7 +70,6 @@ if 'memory' not in st.session_state:
     st.session_state['memory'] = ConversationBufferWindowMemory(
         k=100, memory_key="history", input_key="input", return_messages=True
     )
-
 memory = st.session_state['memory']
 
 PROMPT_TEMPLATE = """
@@ -89,7 +89,7 @@ Müşteriye soruları yanıtlarken şu adımları izle:
 1. Eğer bir ürün önerdiysen ve müşteri bu ürün hakkında soru soruyorsa, önceki önerdiğin ürüne göre cevap ver.
 2. Eğer müşteri en ucuz ürünü istiyorsa, ürünleri fiyatına göre sıralayıp en ucuz ürünü öner.
 3. Eğer yeni bir ürün talebi varsa, FAISS indeksinden uygun ürünü bul ve öner.
-4. Eğer müşteri bir bütçe belirtmişse ve uygun ürün yoksa, mevcut ürünlerin en düşük fiyatını bildir ve alternatifler sun.
+4. Eğer müşteri bir bütçe belirtmişse ve uygun ürün yoksa, mevcut ürünlerin en düşük ve en yüksek fiyatlarını bildir ve alternatifler sun.
 5. Yanıtların samimi ve kullanıcı dostu olsun. Örneğin: "Önerdiğim buzdolabının fiyatı 7000 TL'dir."
 6. Müşterinin sorularına en doğru ve ilgili cevabı vermeye çalış.
 
@@ -112,8 +112,8 @@ En ucuz ürünü istiyor mu? [evet/hayır]
 """)
     chain = LLMChain(llm=model, prompt=prompt)
     result = chain.run({'query_text': query_text}).strip().lower()
-    budget_match = re.search(r"bütçe.\[(.?)\]", result)
-    intent_match = re.search(r"en ucuz.\[(.?)\]", result)
+    budget_match = re.search(r"bütçe.*\[(.*?)\]", result)
+    intent_match = re.search(r"en ucuz.*\[(.*?)\]", result)
     budget = re.sub(r'[^\d]', '', budget_match.group(1)) if budget_match else None
     budget = float(budget) if budget else None
     wants_cheapest = intent_match.group(1) == 'evet' if intent_match else False
@@ -143,11 +143,14 @@ def search_and_generate_response(query):
             all_prices.append((float(price), item))
     min_price_item = min(all_prices, key=lambda x: x[0])[1] if all_prices else None
     min_price = min(all_prices, key=lambda x: x[0])[0] if all_prices else None
+    max_price_item = max(all_prices, key=lambda x: x[0])[1] if all_prices else None
+    max_price = max(all_prices, key=lambda x: x[0])[0] if all_prices else None
 
     if wants_cheapest and min_price_item:
         st.session_state['recommended_products'] = [min_price_item]
         context = "\n".join([f"{k}: {v}" for k, v in min_price_item.items()])
         return generate_response(context, query)
+
     if budget is not None:
         filtered = []
         for item in results:
@@ -155,8 +158,8 @@ def search_and_generate_response(query):
             if price and float(price) <= budget:
                 filtered.append(item)
         if not filtered:
-            if min_price:
-                return f"Üzgünüm, {budget} TL bütçeyle uygun bir buzdolabı bulamadım. Mevcut buzdolaplarımızın fiyatları {min_price} TL'den başlamaktadır."
+            if min_price and max_price:
+                return f"Üzgünüm, {budget} TL bütçeyle uygun bir buzdolabı bulamadım. Mevcut buzdolaplarımızın fiyatları {min_price} TL ile {max_price} TL arasında değişmektedir."
             else:
                 return "Üzgünüm, şu anda elimizde ürün bulunmamaktadır."
         st.session_state['recommended_products'] = filtered
